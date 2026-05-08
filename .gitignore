@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SmartPresence project artifacts
+data/raw/*
+data/processed/*
+data/encodings/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/encodings/.gitkeep
+models/*
+!models/.gitkeep
+logs/*
+!logs/.gitkeep
+*.pkl
+*.npy
+*.npz
