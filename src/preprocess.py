@@ -89,6 +89,13 @@ def process_label(
     manifest_rows: list[tuple[str, str, bool]] = []
     mtcnn = build_mtcnn()
 
+    # Calculate dynamic augmentation count if raw files < 80
+    if len(raw_files) < 80 and len(raw_files) > 0:
+        aug_per_image = int(320 / len(raw_files)) - 1
+        aug_per_image = max(1, aug_per_image)  # Ensure at least 1 augmentation
+    else:
+        aug_per_image = config.AUG_PER_IMAGE
+
     for raw_path in raw_files:
         bgr = cv2.imread(str(raw_path), cv2.IMREAD_COLOR)
         if bgr is None:
@@ -113,7 +120,7 @@ def process_label(
         manifest_rows.append((base_out.as_posix(), label, False))
 
         if do_augment:
-            for aug_idx in range(1, config.AUG_PER_IMAGE + 1):
+            for aug_idx in range(1, aug_per_image + 1):
                 aug_img = augment_image(aligned, rng)
                 aug_out = out_dir / f"{base_name}_aug{aug_idx}.png"
                 cv2.imwrite(str(aug_out), cv2.cvtColor(aug_img, cv2.COLOR_RGB2BGR))
