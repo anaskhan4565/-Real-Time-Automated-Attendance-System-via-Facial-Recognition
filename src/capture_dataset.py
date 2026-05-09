@@ -13,10 +13,10 @@ import time
 from pathlib import Path
 
 import cv2
-import face_recognition
 import numpy as np
 
 from src import config
+from src.face import build_mtcnn, detect_faces
 
 INSTRUCTIONS = [
     "Look straight",
@@ -130,13 +130,13 @@ def draw_hud(
     return output
 
 
-def is_single_large_face(frame_bgr: np.ndarray) -> bool:
+def is_single_large_face(frame_bgr: np.ndarray, mtcnn) -> bool:
     """Return True only when exactly one face exists and area >= 10000 px."""
     rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    locations = face_recognition.face_locations(rgb, model="hog")
-    if len(locations) != 1:
+    boxes, _ = detect_faces(mtcnn, rgb)
+    if len(boxes) != 1:
         return False
-    top, right, bottom, left = locations[0]
+    top, right, bottom, left = boxes[0]
     area = max(0, right - left) * max(0, bottom - top)
     return area >= 10000
 
@@ -154,6 +154,7 @@ def run_capture(label: str, target_frames: int) -> int:
     save_idx = next_index(person_dir, label)
     saved_count = 0
     display_count = 0
+    mtcnn = build_mtcnn()
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -183,7 +184,7 @@ def run_capture(label: str, target_frames: int) -> int:
             if key == ord("q"):
                 break
 
-            if is_single_large_face(frame):
+            if is_single_large_face(frame, mtcnn):
                 filename = f"{label}_{save_idx:04d}.jpg"
                 out_path = person_dir / filename
                 cv2.imwrite(str(out_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])

@@ -24,7 +24,6 @@ from sklearn.model_selection import train_test_split
 
 from src import config
 from src.encode import (
-    encode_with_face_recognition,
     encode_with_facenet,
     l2_normalize,
     load_facenet_model,
@@ -210,9 +209,10 @@ def build_impostor_embeddings(
     impostors: list[np.ndarray] = []
     target_n = 200
 
-    model = device = torch_module = None
-    if backend == "facenet_pytorch":
-        model, device, torch_module = load_facenet_model()
+    if backend != "facenet_pytorch":
+        raise ValueError(f"Unsupported backend: {backend}")
+
+    model, device, torch_module = load_facenet_model()
 
     for _ in range(target_n):
         row = manifest_rows[int(rng.choice(idx_test))]
@@ -222,10 +222,7 @@ def build_impostor_embeddings(
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         corrupted = _corrupt_image(rgb, rng)
         try:
-            if backend == "face_recognition":
-                emb = encode_with_face_recognition(corrupted)
-            else:
-                emb = encode_with_facenet(corrupted, model, device, torch_module)
+            emb = encode_with_facenet(corrupted, model, device, torch_module)
             emb = l2_normalize(emb.astype(np.float32))
             impostors.append(emb)
         except Exception:

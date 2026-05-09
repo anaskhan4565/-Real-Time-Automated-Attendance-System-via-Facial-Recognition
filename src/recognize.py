@@ -6,12 +6,12 @@ import argparse
 import json
 
 import cv2
-import face_recognition
 import joblib
 import numpy as np
 
 from src import config
-from src.encode import encode_with_face_recognition, encode_with_facenet, l2_normalize, load_facenet_model
+from src.encode import encode_with_facenet, l2_normalize, load_facenet_model
+from src.face import build_mtcnn, detect_faces
 from src.utils import CSVAttendanceLogger, FPSMeter, align_face, draw_label, seed_everything
 
 
@@ -35,6 +35,9 @@ def load_model_and_labels() -> tuple[object, str, dict]:
     model_payload = joblib.load(config.PATHS["models"] / "classifier.pkl")
     classifier = model_payload["model"]
     backend = model_payload.get("backend", config.ENCODER_BACKEND)
+    if backend == "face_recognition":
+        backend = "facenet_pytorch"
+
     label_map_path = model_payload.get("label_map_path", "data/encodings/label_map.json")
     with (config.PROJECT_ROOT / label_map_path).open("r", encoding="utf-8") as f:
         label_map = json.load(f)
@@ -78,6 +81,8 @@ def main() -> None:
     if backend == "facenet_pytorch":
         facenet_model, facenet_device, facenet_torch = load_facenet_model()
 
+    mtcnn = build_mtcnn()
+
     cap = cv2.VideoCapture(args.camera)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open camera index {args.camera}.")
@@ -92,32 +97,25 @@ def main() -> None:
                 continue
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            boxes = face_recognition.face_locations(rgb, model="hog")
+            boxes, landmarks_list = detect_faces(mtcnn, rgb)
 
-            for box in boxes:
-                landmarks_list = face_recognition.face_landmarks(rgb, [box], model="large")
-                if not landmarks_list:
-                    continue
-
+            for box, landmarks in zip(boxes, landmarks_list):
                 try:
                     aligned = align_face(
                         rgb_image=rgb,
                         face_box=box,
-                        landmarks_dict=landmarks_list[0],
+                        landmarks=landmarks,
                         out_size=config.IMG_SIZE,
                     )
                 except Exception:
                     continue
 
-                if backend == "facenet_pytorch":
-                    emb = encode_with_facenet(
-                        rgb=aligned.astype(np.uint8),
-                        model=facenet_model,
-                        device=facenet_device,
-                        torch_module=facenet_torch,
-                    )
-                else:
-                    emb = encode_with_face_recognition(aligned.astype(np.uint8))
+                emb = encode_with_facenet(
+                    rgb=aligned.astype(np.uint8),
+                    model=facenet_model,
+                    device=facenet_device,
+                    torch_module=facenet_torch,
+                )
 
                 emb = l2_normalize(emb.astype(np.float32)).reshape(1, -1)
                 probs = classifier.predict_proba(emb)[0]

@@ -68,12 +68,16 @@ def _compute_five_points(landmarks_dict: dict[str, list[tuple[int, int]]]) -> np
 def align_face(
     rgb_image: np.ndarray,
     face_box: tuple[int, int, int, int],
-    landmarks_dict: dict[str, list[tuple[int, int]]],
+    landmarks: dict[str, list[tuple[int, int]]] | np.ndarray,
     out_size: int,
 ) -> np.ndarray:
     """Align face to ArcFace template and return RGB float image."""
     _ = face_box  # Included to match calling contract.
-    src_points = _compute_five_points(landmarks_dict)
+    if isinstance(landmarks, np.ndarray):
+        src_points = landmarks.astype(np.float32)
+    else:
+        src_points = _compute_five_points(landmarks)
+
     dst_points = ARCFACE_TEMPLATE_112 * (float(out_size) / 112.0)
 
     transform, _ = cv2.estimateAffinePartial2D(src_points, dst_points, method=cv2.LMEDS)

@@ -13,21 +13,11 @@ import random
 from pathlib import Path
 
 import cv2
-import face_recognition
 import numpy as np
 
 from src import config
-
-ARCFACE_TEMPLATE_112 = np.array(
-    [
-        [38.29, 51.69],  # left eye
-        [73.53, 51.50],  # right eye
-        [56.02, 71.74],  # nose tip
-        [41.54, 92.36],  # left mouth corner
-        [70.72, 92.20],  # right mouth corner
-    ],
-    dtype=np.float32,
-)
+from src.face import build_mtcnn, detect_faces
+from src.utils import align_face
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,53 +37,6 @@ def seed_everything(seed: int) -> None:
     np.random.seed(seed)
 
 
-def compute_five_points(landmarks: dict[str, list[tuple[int, int]]]) -> np.ndarray:
-    """Compute 5-point landmark set from dlib's 68-point grouped landmarks."""
-    left_eye = np.array(landmarks["left_eye"], dtype=np.float32)
-    right_eye = np.array(landmarks["right_eye"], dtype=np.float32)
-    top_lip = np.array(landmarks["top_lip"], dtype=np.float32)
-    bottom_lip = np.array(landmarks["bottom_lip"], dtype=np.float32)
-    nose_bridge = np.array(landmarks["nose_bridge"], dtype=np.float32)
-    nose_tip = np.array(landmarks["nose_tip"], dtype=np.float32)
-
-    left_eye_center = left_eye.mean(axis=0)
-    right_eye_center = right_eye.mean(axis=0)
-
-    if len(nose_tip) > 0:
-        nose = nose_tip[len(nose_tip) // 2]
-    else:
-        nose = nose_bridge[-1]
-
-    lip_all = np.vstack([top_lip, bottom_lip])
-    left_mouth = lip_all[np.argmin(lip_all[:, 0])]
-    right_mouth = lip_all[np.argmax(lip_all[:, 0])]
-
-    return np.vstack([left_eye_center, right_eye_center, nose, left_mouth, right_mouth]).astype(
-        np.float32
-    )
-
-
-def align_face(rgb: np.ndarray, src_points: np.ndarray, out_size: int) -> np.ndarray:
-    """Align face to ArcFace template scaled to out_size."""
-    scale = float(out_size) / 112.0
-    dst_points = ARCFACE_TEMPLATE_112 * scale
-
-    transform, _ = cv2.estimateAffinePartial2D(
-        src_points,
-        dst_points,
-        method=cv2.LMEDS,
-    )
-    if transform is None:
-        raise RuntimeError("Could not estimate affine transform.")
-
-    aligned = cv2.warpAffine(
-        rgb,
-        transform,
-        (out_size, out_size),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_REFLECT_101,
-    )
-    return aligned
 
 
 def augment_image(rgb: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -144,6 +87,7 @@ def process_label(
 
     summary = {"raw": len(raw_files), "accepted": 0, "augmented": 0, "total": 0}
     manifest_rows: list[tuple[str, str, bool]] = []
+    mtcnn = build_mtcnn()
 
     for raw_path in raw_files:
         bgr = cv2.imread(str(raw_path), cv2.IMREAD_COLOR)
@@ -151,20 +95,16 @@ def process_label(
             continue
 
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        boxes = face_recognition.face_locations(rgb, model="hog")
+        boxes, landmarks_list = detect_faces(mtcnn, rgb)
         if len(boxes) != 1:
             continue
 
-        landmarks_list = face_recognition.face_landmarks(rgb, [boxes[0]], model="large")
-        if len(landmarks_list) != 1:
-            continue
-
         try:
-            src_points = compute_five_points(landmarks_list[0])
-            aligned = align_face(rgb, src_points, config.IMG_SIZE)
+            aligned = align_face(rgb, boxes[0], landmarks_list[0], config.IMG_SIZE)
         except Exception:
             continue
 
+        aligned = np.clip(aligned, 0, 255).astype(np.uint8)
         base_name = raw_path.stem
         base_out = out_dir / f"{base_name}.png"
         cv2.imwrite(str(base_out), cv2.cvtColor(aligned, cv2.COLOR_RGB2BGR))

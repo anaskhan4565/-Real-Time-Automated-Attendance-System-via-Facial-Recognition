@@ -14,13 +14,15 @@ PEOPLE: list[tuple[str, str, str]] = [
     ("ahsan_22K-4176", "Ahsan Ali", "22K-4176"),
     ("anas_m_22K-4548", "Mohammad Anas", "22K-4548"),
     ("anas_k_22K-4483", "Anas Khan", "22K-4483"),
+    ("ammi", "MOM", "mommy"),
+    ("rumaisa", "Rumaisa", "rumaisa"),
 ]
 
 FRAMES_PER_PERSON: int = 80
 IMG_SIZE: int = 160
 
-ENCODER_BACKEND: str = "face_recognition"
-EMBED_DIM: int = 128
+ENCODER_BACKEND: str = "facenet_pytorch"
+EMBED_DIM: int = 512
 
 TAU: float = 0.55
 

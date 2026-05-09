@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 
 import cv2
-import face_recognition
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
@@ -23,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Encode processed faces into embeddings.")
     parser.add_argument(
         "--backend",
-        choices=["face_recognition", "facenet_pytorch"],
+        choices=["facenet_pytorch"],
         default=None,
         help="Override encoder backend from src.config.",
     )
@@ -58,19 +57,6 @@ def read_manifest(path: Path) -> list[dict[str, str]]:
 def l2_normalize(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     norm = np.linalg.norm(v)
     return v / max(norm, eps)
-
-
-def encode_with_face_recognition(rgb: np.ndarray) -> np.ndarray:
-    h, w = rgb.shape[:2]
-    encs = face_recognition.face_encodings(
-        rgb,
-        known_face_locations=[(0, w, h, 0)],
-        num_jitters=1,
-        model="small",
-    )
-    if not encs:
-        raise RuntimeError("face_recognition returned no embedding.")
-    return np.asarray(encs[0], dtype=np.float32)
 
 
 def load_facenet_model():
@@ -139,7 +125,7 @@ def main() -> None:
         raise RuntimeError("Manifest is empty; run preprocessing first.")
 
     backend = args.backend or config.ENCODER_BACKEND
-    if backend not in {"face_recognition", "facenet_pytorch"}:
+    if backend != "facenet_pytorch":
         raise ValueError(f"Unsupported backend: {backend}")
 
     labels_order = [label for label, _, _ in config.PEOPLE]
@@ -148,11 +134,8 @@ def main() -> None:
         if row["label"] not in label_to_idx:
             raise ValueError(f"Unknown label in manifest: {row['label']}")
 
-    model = device = torch_module = None
-    encoder_version = "face_recognition_1.3.0+dlib"
-    if backend == "facenet_pytorch":
-        model, device, torch_module = load_facenet_model()
-        encoder_version = "facenet_pytorch_inceptionresnetv1_vggface2"
+    model, device, torch_module = load_facenet_model()
+    encoder_version = "facenet_pytorch_inceptionresnetv1_vggface2"
 
     embeddings: list[np.ndarray] = []
     y_list: list[int] = []
@@ -165,11 +148,7 @@ def main() -> None:
             raise RuntimeError(f"Could not read image: {img_path}")
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-        if backend == "face_recognition":
-            emb = encode_with_face_recognition(rgb)
-        else:
-            emb = encode_with_facenet(rgb, model, device, torch_module)
-
+        emb = encode_with_facenet(rgb, model, device, torch_module)
         emb = l2_normalize(emb).astype(np.float32)
         embeddings.append(emb)
         y_list.append(label_to_idx[row["label"]])
@@ -178,7 +157,7 @@ def main() -> None:
     x = np.vstack(embeddings).astype(np.float32)
     y = np.asarray(y_list, dtype=np.int64)
 
-    embed_dim_expected = 128 if backend == "face_recognition" else 512
+    embed_dim_expected = config.EMBED_DIM
     if x.shape[1] != embed_dim_expected:
         raise RuntimeError(
             f"Embedding dimension mismatch: got {x.shape[1]}, expected {embed_dim_expected}"
